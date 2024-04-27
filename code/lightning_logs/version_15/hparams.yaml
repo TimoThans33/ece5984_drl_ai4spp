@@ -1,8 +1,13 @@
 batch_size: 512
 val_batch_size: null
 test_batch_size: null
+<<<<<<< HEAD
 train_data_size: 100000
 val_data_size: 10000
+=======
+train_data_size: 10
+val_data_size: 10
+>>>>>>> origin
 test_data_size: 10000
 optimizer: Adam
 optimizer_kwargs:

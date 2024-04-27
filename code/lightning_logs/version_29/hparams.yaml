@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 batch_size: 2
+=======
+batch_size: 512
+>>>>>>> origin
 val_batch_size: null
 test_batch_size: null
 train_data_size: 10
