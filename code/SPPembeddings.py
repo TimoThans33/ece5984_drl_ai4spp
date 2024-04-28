@@ -17,17 +17,18 @@ class SPPInitEmbedding(nn.Module):
     def forward(self, td):
         locs = td["locs"]
         # print("locs: ", locs.shape)
-        target = td["end_node"]
-        #print("target: ", target.shape)
+        distance_to_target = td["manhattan_matrix"]
 
-        batch_indices = torch.arange(len(target))
-        target = locs[batch_indices, target].unsqueeze(1)
+        #print("target: ", target.shape)
+        # batch_indices = torch.arange(len(target))
+        # target = locs[batch_indices, target].unsqueeze(1)
 
         #print("target: ", target.shape)
         #print(target)
 
         # Compute the distance to the target
-        distance_to_target = torch.norm(locs - target, dim=-1, keepdim=True)
+        # distance_to_target = torch.norm(locs - target, dim=-1, keepdim=True)
+
         # print("distance_to_target: ", distance_to_target.shape)
         #print(distance_to_target)
         
@@ -63,7 +64,6 @@ class SPPInitEmbedding(nn.Module):
         # Concatenate the locs and target to form the input tensor
         #node_and_target = torch.cat([locs, target], dim=2)
         out = self.init_embed(locs_and_distance)
-
         return out
     
 class SPPContext(nn.Module):

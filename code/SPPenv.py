@@ -54,11 +54,16 @@ def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict
         if not torch.any(torch.eq(first_node, end_node)):
             break
 
+
     # print("end_node: ", end_node)
     # print("first_node: ", first_node)
     
     batch_indices = torch.arange(len(first_node))
     available = init_edges[batch_indices, first_node]
+
+    # Compute the distance to the target
+    target = init_locs[batch_indices, end_node].unsqueeze(1)
+    distance_to_target = torch.norm(init_locs - target, dim=-1, keepdim=True)
 
     # Initialize the index of the current node 
     i = torch.zeros((*batch_size, 1), dtype=torch.int64, device=device)
@@ -70,6 +75,7 @@ def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict
         {
             "locs": init_locs,
             "edges": init_edges,
+            "manhattan_matrix": distance_to_target,
             "first_node": first_node,
             "current_node": first_node,
             "end_node": end_node,
@@ -168,10 +174,10 @@ def get_reward(self, td, actions) -> TensorDict:
     # if any of the batch element has reached maximum steps, set to infinity
     step_mask = step_count >= 100
     # give a reward of the step count, but inf for the non-done elements
-    reward = torch.where(step_mask, torch.tensor(-float('inf'), dtype=torch.float32, device=step_count.device), -step_count.float())
+    reward = torch.where(step_mask, torch.tensor(-1000.0, dtype=torch.float32, device=step_count.device), -step_count.float())
     # if this batch element has reached maximum steps, 
     # print("reward: ", reward)
-    return -reward
+    return reward
 
 def _make_spec(self, td_params):
     """Make the observation and action specs from the parameters"""
@@ -180,6 +186,14 @@ def _make_spec(self, td_params):
             low=self.min_loc,
             high=self.max_loc,
             shape=(self.num_loc, 2),
+            dtype=torch.float32,
+        ),
+        edges=UnboundedDiscreteTensorSpec(
+            shape=(self.num_loc, self.num_loc),
+            dtype=torch.bool,
+        ),
+        manhattan_matrix=UnboundedContinuousTensorSpec(
+            shape=(self.num_loc, self.num_loc),
             dtype=torch.float32,
         ),
         start_node=UnboundedDiscreteTensorSpec(

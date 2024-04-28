@@ -1,0 +1,5 @@
+epoch,step,train/loss,train/reward,val/reward
+0,19,,,inf
+1,39,,,inf
+2,49,nan,inf,
+2,59,,,inf
