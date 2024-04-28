@@ -105,7 +105,7 @@ def _step(self, td: TensorDict) -> TensorDict:
     available = get_action_mask(self, td)
 
     # Mask the current node to prevent revisiting
-    # available = available & ~td["current_node"].unsqueeze(-1).eq(torch.arange(available.shape[-1], device=available.device))
+    available = available & ~td["current_node"].unsqueeze(-1).eq(torch.arange(available.shape[-1], device=available.device))
 
     # Create a tensor of batch indices
     # batch_indices = torch.arange(len(current_node))
