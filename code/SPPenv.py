@@ -32,9 +32,9 @@ def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict
     self.to(device)
     # If no initial locations are provided, generate new ones
     if init_locs is None:
-        init_locs = self.generate_data(batch_size=batch_size).to(device)["locs"]
-    if init_edges is None:
-        init_edges = self.generate_data(batch_size=batch_size).to(device)["edges"]
+        grid_out = self.generate_data(batch_size=batch_size).to(device)
+        init_locs = grid_out["locs"]
+        init_edges = grid_out["edges"]
 
     # Reset step count
     step_count = torch.zeros(batch_size, dtype=torch.int64, device=device)
@@ -42,11 +42,9 @@ def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict
     # If batch_size is an integer, convert it to a list
     batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
 
-    # Done mask is initialized to False
-    done_mask = torch.zeros(batch_size, dtype=torch.bool, device=device)
-
     # Get the number of locations
     num_loc = init_locs.shape[-2]
+    # print("num_loc: ", num_loc)
 
     # Initialize a start and end node
     first_node = torch.randint(0, num_loc, (batch_size), device=device)
@@ -59,30 +57,14 @@ def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict
     # print("end_node: ", end_node)
     # print("first_node: ", first_node)
     
-    # Initialize the action mask to the manhattan distance of the nodes
-    tmp = torch.zeros((*batch_size, self.num_loc, self.num_loc), dtype=torch.float32, device=device)
-    for i in range(tmp.shape[0]):
-        node_num = end_node[i]
-        # print(node_num)
-        x, y = init_locs[i, node_num, 0], init_locs[i, node_num, 1]
-        # print("x: ", x)
-        # print("y: ", y)
-        man_mat = compute_manhattan_distance(10, x*10, y*10)
-        tmp[i] = torch.tensor(man_mat, dtype=torch.float32)
-    
     batch_indices = torch.arange(len(first_node))
     available = init_edges[batch_indices, first_node]
-    # print("available: ", available.shape)
-    # print("tmp: ", tmp.shape)
-
-    # element-wise multiplication
-    # available = available * tmp[batch_indices, first_node]
-
-    # print("available: ", available)
-    # print("manhattan distances: ", tmp)
 
     # Initialize the index of the current node 
     i = torch.zeros((*batch_size, 1), dtype=torch.int64, device=device)
+
+    # Initialize the done mask
+    done_mask = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
     return TensorDict(
         {
@@ -92,7 +74,6 @@ def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict
             "current_node": first_node,
             "end_node": end_node,
             "step_count": step_count,
-            "manhattan_distance": tmp[batch_indices, first_node],
             "i": i,
             "action_mask": available,
             "reward": torch.zeros((*batch_size, 1), dtype=torch.float32),
@@ -124,7 +105,7 @@ def _step(self, td: TensorDict) -> TensorDict:
     available = get_action_mask(self, td)
 
     # Mask the current node to prevent revisiting
-    available = available & ~td["current_node"].unsqueeze(-1).eq(torch.arange(available.shape[-1], device=available.device))
+    # available = available & ~td["current_node"].unsqueeze(-1).eq(torch.arange(available.shape[-1], device=available.device))
 
     # Create a tensor of batch indices
     # batch_indices = torch.arange(len(current_node))
@@ -140,7 +121,8 @@ def _step(self, td: TensorDict) -> TensorDict:
     # print("done: ", done)
 
     # done = torch.sum(td["action_mask"], dim=-1) == 0
-    done_mask = done
+    
+    done_mask = done_mask | done
     # The reward is calculated outside via get_reward for efficiency, so we set it to 0 here
     reward = torch.zeros_like(done)
 
@@ -153,7 +135,7 @@ def _step(self, td: TensorDict) -> TensorDict:
             "action_mask": available,
             "reward": reward,
             "done": done,
-            "done_mask": done_mask,
+            "done_mask": done_mask, 
         },
     )
     return td
@@ -186,7 +168,7 @@ def get_reward(self, td, actions) -> TensorDict:
     # if any of the batch element has reached maximum steps, set to infinity
     step_mask = step_count >= 100
     # give a reward of the step count, but inf for the non-done elements
-    reward = torch.where(step_mask, torch.tensor(-float("inf"), dtype=torch.float32, device=step_count.device), -step_count.float())
+    reward = torch.where(step_mask, torch.tensor(-float('inf'), dtype=torch.float32, device=step_count.device), -step_count.float())
     # if this batch element has reached maximum steps, 
     # print("reward: ", reward)
     return -reward
@@ -224,10 +206,6 @@ def _make_spec(self, td_params):
             shape=(1),
             dtype=torch.bool,
         ),
-        manhattan_distance=UnboundedContinuousTensorSpec(
-            shape=(self.num_loc),
-            dtype=torch.float32,
-        ),
         step_count=UnboundedDiscreteTensorSpec(
             shape=(1),
             dtype=torch.int64,
@@ -244,10 +222,70 @@ def _make_spec(self, td_params):
     self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
 
 def generate_data(self, batch_size) -> TensorDict:
+    # Ensure batch_size is an integer
+    batch_size = int(batch_size[0]) if isinstance(batch_size, list) else batch_size
+
+    grid_size = int(self.num_loc ** (1/2))
+
+    # Generate normalize locations for the nodes
+    grid_indices = torch.arange(grid_size)
+    x, y = torch.meshgrid(grid_indices, grid_indices, indexing="ij")
+    locs = torch.stack((x.flatten().float() / grid_size, y.flatten().float() / grid_size), dim=1)
+
+    # Add batch dimension and repeat the locs tensor for each item in the batch
+    locs = locs.unsqueeze(0).repeat(batch_size, 1, 1)
+    
+    # Generate the adjacency matrix
+    edges = torch.zeros((batch_size, grid_size*grid_size, grid_size*grid_size), dtype=torch.bool)
+    adjacency_matrix = generate_adjacency_matrix(grid_size)
+    adjacency_matrix = torch.tensor(adjacency_matrix, dtype=torch.bool)
+    adjacency_matrix = adjacency_matrix.unsqueeze(0).repeat(batch_size, 1, 1)
+    edges[:] = adjacency_matrix
+
+    # print("locs: ", locs.shape)
+    # print("edges: ", edges.shape)
+    
     batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
+    
+    return TensorDict({"locs": locs, "edges": edges}, batch_size=batch_size)
+
+def plot_graph(self, locs, edges, ax=None):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        # Create a plot of the nodes
+        _, ax = plt.subplots()
+
+    locs = locs.detach().cpu()
+    edges = edges.detach().cpu()
+
+    x, y = locs[:, 0], locs[:, 1]
+
+    # Plot the nodes
+    ax.scatter(x, y, color="tab:blue")
+
+    # Plot the edges
+    x_i, y_i = locs[:, 0], locs[:, 1]
+    for i in range(edges.shape[0]):
+        for j in range(edges.shape[1]):
+            if edges[i, j]:
+                ax.plot([x_i[i], x_i[j]], [y_i[i], y_i[j]], color='g', alpha=0.1)
+
+    # Setup limits and show
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.05, 1.05)
+
+    return ax
+
+def generate_data_slow(self, batch_size) -> TensorDict:
+    batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
+    
+    num_loc = int(self.num_loc ** (1/2))
+    
     # Generate random locations for the nodes
     locs = {}
-    grid_size = 10
+    grid_size = num_loc
     for i in range(grid_size):
         for j in range(grid_size):
             x = i / grid_size
@@ -256,7 +294,7 @@ def generate_data(self, batch_size) -> TensorDict:
     locs = torch.tensor(list(locs.values()), dtype=torch.float32)
     locs = locs.unsqueeze(0).expand(batch_size + [-1, -1])
     # Generate a random adjaceny matrix for the edges
-    edges = torch.zeros((*batch_size, self.num_loc, self.num_loc), dtype=torch.bool)
+    edges = torch.zeros((*batch_size, num_loc, num_loc), dtype=torch.bool)
     for i in range(edges.shape[0]):
         matrix = generate_adjacency_matrix(grid_size)
         edges[i] = torch.tensor(matrix, dtype=torch.bool)
