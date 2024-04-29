@@ -4,19 +4,19 @@ import random
 
 def random_policy(td):
     """Helper function to select a random action from available actions"""
-    print("action mask: ", td["action_mask"])
+#     print("action mask: ", td["action_mask"])
     #print("greedy action: ", torch.argmax(td["action_mask"], 1))
     action = torch.multinomial(td["action_mask"].float(), 1).squeeze(-1)
-    print("random action: ", action)
+#     print("random action: ", action)
     td.set("action", action)
     return td
 
 def greedy(td):
     """Select the action with the highest probability."""
-    print("action mask: ", td["action_mask"])
-    print("end node: ", td["end_node"])
+#     print("action mask: ", td["action_mask"])
+#     print("end node: ", td["end_node"])
     action = torch.argmax(td["action_mask"], 1)
-    print("greedy action: ", action)
+#     print("greedy action: ", action)
     td.set("action", action)
     return td
 
