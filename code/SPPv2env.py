@@ -395,7 +395,7 @@ def render(self, td, actions=None, ax=None):
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.05, 1.05)
 
-class SPPEnv(RL4COEnvBase):
+class SPPv2Env(RL4COEnvBase):
     """Traveling Salesman Problem (TSP) environment"""
 
     name = "tsp"

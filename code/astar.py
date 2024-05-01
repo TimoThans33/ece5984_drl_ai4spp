@@ -4,42 +4,75 @@ import matplotlib.pyplot as plt
 import torch
 
 class AStarSearch:
-    def __init__(self, env):
-        self.env = env
-        self.observation = self.env._reset(batch_size=1)
-        self.start = self.observation["first_node"]
-        self.end = self.observation["end_node"]
-        self.locations = self.observation["locs"]
-        self.edges = self.observation["edges"]
+    def __init__(self, td):
+        self.start = td["first_node"]
+        self.end = td["end_node"]
+        self.locations = td["locs"]
+        self.edges = td["edges"]
+        self.batch_size = self.start.shape[0]
     
     @staticmethod
     def heuristic(a, b):
         return torch.sum(torch.abs(a - b), dim=-1)
     
     def search(self):
-        frontier = PriorityQueue()
-        start_coord = self.locations[0, self.start]
-        end_coord = self.locations[0, self.end]
-        frontier.put(self.start.item(), 0)
-        came_from = {self.start.item(): None}
-        cost_so_far = {self.start.item(): 0}
+        batch_size = self.start.shape[0]
+        came_froms = [{} for _ in range(batch_size)]
+        cost_so_fars = [{} for _ in range(batch_size)]
+        paths = [None for _ in range(batch_size)]
+        rewards = torch.zeros(batch_size)
 
-        while not frontier.empty():
-            current = frontier.get()
-            if current == self.end.item():
-                break
+        max_path_length = 0
+        for i in range(batch_size):
+            frontier = PriorityQueue()
+            start = self.start[i].item()
+            end = self.end[i].item()
+            start_coord = self.locations[i, start]
+            end_coord = self.locations[i, end]
+            frontier.put(start, 0)
+            came_froms[i][start] = None
+            cost_so_fars[i][start] = 0
 
-            neighbors = np.argwhere(self.edges[0, current])
-            for neighbor in neighbors[0]:
-                neighbor = neighbor.item()
-                new_cost = cost_so_far[current] + 1
-                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
-                    cost_so_far[neighbor] = new_cost
-                    priority = new_cost + self.heuristic(self.locations[0, current], end_coord)
-                    frontier.put(neighbor, priority)
-                    came_from[neighbor] = current
-        
-        return came_from, cost_so_far
+            while not frontier.empty():
+                current = frontier.get()
+                if current == end:
+                    break
+
+                neighbors = (self.edges[i, current] > 0).nonzero(as_tuple=True)[0]
+                for neighbor in neighbors:
+                    neighbor = neighbor.item()
+                    new_cost = cost_so_fars[i][current] + 1
+                    if neighbor not in cost_so_fars[i] or new_cost < cost_so_fars[i][neighbor]:
+                        cost_so_fars[i][neighbor] = new_cost
+                        priority = new_cost + self.heuristic(self.locations[i, current], end_coord)
+                        frontier.put(neighbor, priority)
+                        came_froms[i][neighbor] = current
+
+            paths[i] = self.reconstruct_path(came_froms[i], start, end)
+            max_path_length = max(max_path_length, len(paths[i]))
+
+            # Calculate the total reward for each path
+            rewards[i] = -cost_so_fars[i][end]
+
+        # Pad the paths to the maximum length in the batch
+        for i in range(batch_size):
+            paths[i] += [paths[i][-1]] * (max_path_length - len(paths[i]))
+
+        results = {
+            "actions": torch.tensor(paths),
+            "reward": rewards
+        }
+        return results
+
+    def reconstruct_path(self, came_from, start, end):
+        path = []
+        current = end
+        while current != start:
+            path.append(current)
+            current = came_from[current]
+        path.append(start)
+        path.reverse()
+        return path
 
     def render(self, came_from):
         _, ax = plt.subplots()
