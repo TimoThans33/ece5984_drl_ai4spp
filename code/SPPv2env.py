@@ -256,11 +256,24 @@ def generate_data(self, batch_size) -> TensorDict:
     adjacency_matrix = adjacency_matrix.unsqueeze(0).repeat(batch_size, 1, 1)
     edges[:] = adjacency_matrix
 
-    obstacle_probability = 0.2
+    obstacle_probability = 0.05
+    
+    # import matplotlib.pyplot as plt
+    # plt.imshow(edges[0].float().cpu(), cmap="gray")
+    # plt.colorbar()
+    # plt.title("Adjacency Matrix")
+    # plt.show()
 
     # Add obstacles to the adjacency matrix
     obstacle_matrix = torch.rand((batch_size, grid_size*grid_size, grid_size*grid_size)) < obstacle_probability
     edges[obstacle_matrix] = 0  # 0 represents an obstacle
+    edges[obstacle_matrix.transpose(1,2)] = 0
+    
+    # import matplotlib.pyplot as plt
+    # plt.imshow(edges[0].float().cpu(), cmap="gray")
+    # plt.colorbar()
+    # plt.title("Adjacency Matrix")
+    # plt.show()
 
     # print("locs: ", locs.shape)
     # print("edges: ", edges.shape)
